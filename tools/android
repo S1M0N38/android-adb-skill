@@ -684,8 +684,8 @@ def _broadcast_text(text, device_id):
     """Send text via ADBKeyboard broadcast intent (no keyboard popup)."""
     encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
     adb_text(
-        ["shell", "am", "broadcast", "-a", "ADB_INPUT_TEXT",
-         "--es", "msg", encoded, "--ez", "is_base64", "true"],
+        ["shell", "am", "broadcast", "-a", "ADB_INPUT_B64",
+         "--es", "msg", encoded],
         device_id=device_id, timeout=10,
     )
 
