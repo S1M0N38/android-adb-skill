@@ -166,6 +166,27 @@ if args[:3] == ["shell", "am", "start"]:
     sys.stdout.write("Starting: Intent\n")
     sys.exit(0)
 
+# ADBKeyboard detection
+if args[2:4] == ["list", "packages"] and "com.android.adbkeyboard" in args:
+    if load_arg("FAKE_ADB_ADBKEYBOARD_INSTALLED", "0") == "1":
+        sys.stdout.write("package:com.android.adbkeyboard\n")
+    sys.exit(0)
+
+# IME get
+if args[:3] == ["shell", "settings", "get"] and len(args) >= 5 and args[-1] == "default_input_method":
+    sys.stdout.write(load_arg("FAKE_ADB_CURRENT_IME", "com.google.android.inputmethod.latin/.LatinIME\n"))
+    sys.exit(0)
+
+# IME set
+if args[:3] == ["shell", "ime", "set"]:
+    sys.stdout.write("")
+    sys.exit(0)
+
+# Broadcast text (ADBKeyboard)
+if args[:3] == ["shell", "am", "broadcast"]:
+    sys.stdout.write("Broadcasting: Intent\n")
+    sys.exit(0)
+
 sys.stderr.write("Unhandled fake adb args: " + " ".join(args) + "\n")
 sys.exit(1)
 """
@@ -270,6 +291,42 @@ class AndroidToolTestCase(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["escaped"], "Hello%sWorld\\!")
+        self.assertEqual(payload["method"], "default")
+
+    def test_input_text_falls_back_when_ime_missing(self):
+        proc = self.run_cli("input", "text", "--text", "hello world", "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["method"], "default")
+        self.assertEqual(payload["text"], "hello world")
+        self.assertIn("escaped", payload)
+
+    def test_input_text_uses_ime_when_available(self):
+        env = self.base_env()
+        env["FAKE_ADB_ADBKEYBOARD_INSTALLED"] = "1"
+        proc = self.run_cli("input", "text", "--text", "hello world", "--json", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["method"], "ime")
+        self.assertEqual(payload["text"], "hello world")
+
+    def test_input_text_handles_unicode_via_ime(self):
+        env = self.base_env()
+        env["FAKE_ADB_ADBKEYBOARD_INSTALLED"] = "1"
+        proc = self.run_cli("input", "text", "--text", "Hello 🌍 émoji!", "--json", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["method"], "ime")
+        self.assertEqual(payload["text"], "Hello 🌍 émoji!")
+
+    def test_input_text_restores_ime_after_typing(self):
+        env = self.base_env()
+        env["FAKE_ADB_ADBKEYBOARD_INSTALLED"] = "1"
+        env["FAKE_ADB_CURRENT_IME"] = "com.example/.CustomIME\n"
+        proc = self.run_cli("input", "text", "--text", "restored", "--json", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["method"], "ime")
 
     def test_app_install_uses_explicit_package_name(self):
         proc = self.run_cli("app", "install", "--apk", str(self.apk_path), "--package", "com.example", "--json")
